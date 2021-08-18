@@ -19,6 +19,9 @@ declare namespace WAWebJS {
         /**Accepts an invitation to join a group */
         acceptInvite(inviteCode: string): Promise<string>
 
+        /** Accepts a private invitation to join a group (v4 invite) */
+        acceptGroupV4Invite: (inviteV4: InviteV4Data) => Promise<{ status: number }>
+
         /**Returns an object with information about the invite code's group */
         getInviteInfo(inviteCode: string): Promise<object>
 
@@ -38,13 +41,15 @@ declare namespace WAWebJS {
          */
         createGroup(name: string, participants: Contact[] | string[]): Promise<CreateGroupResult>
 
-                /**
+
+        /**
          * Set the profile picture of a chat, or you.
         * @param {string} id The chat ID to set the picture to. (yours or a group)
         * @param {MessageMedia} picture The picture to set. 
         * @returns {Promise<String | false>} The url of the image / null if you can't set the profile picture
         */
-                 setProfilePicture(id: string, picture: MessageMedia): Promise<String | null>
+        setProfilePicture(id: string, picture: MessageMedia): Promise<String | null>
+
 
         /** Closes the client */
         destroy(): Promise<void>
@@ -106,6 +111,9 @@ declare namespace WAWebJS {
 
         /** Send a message to a specific chatId */
         sendMessage(chatId: string, content: MessageContent, options?: MessageSendOptions): Promise<Message>
+
+        /** Searches for messages */
+        searchMessages(query: string, options?: { chatId?: string, page?: number, limit?: number }): Promise<Message[]>
 
         /** Marks the client as online */
         sendPresenceAvailable(): Promise<void>
@@ -421,7 +429,10 @@ declare namespace WAWebJS {
         CONTACT_CARD = 'vcard',
         CONTACT_CARD_MULTI = 'multi_vcard',
         REVOKED = 'revoked',
+        ORDER = 'order',
+        PRODUCT = 'product',
         UNKNOWN = 'unknown',
+        GROUP_INVITE = 'groups_v4_invite',
     }
 
     /** Client status */
@@ -448,12 +459,21 @@ declare namespace WAWebJS {
     }
 
     export type MessageInfo = {
-        delivery: Array<{id: ContactId, t: number}>,
+        delivery: Array<{ id: ContactId, t: number }>,
         deliveryRemaining: number,
-        played: Array<{id: ContactId, t: number}>,
+        played: Array<{ id: ContactId, t: number }>,
         playedRemaining: number,
-        read: Array<{id: ContactId, t: number}>,
+        read: Array<{ id: ContactId, t: number }>,
         readRemaining: number
+    }
+
+    export type InviteV4Data = {
+        inviteCode: string,
+        inviteCodeExp: number,
+        groupId: string,
+        groupName?: string,
+        fromId: string,
+        toId: string
     }
 
     /**
@@ -507,12 +527,19 @@ declare namespace WAWebJS {
         id: MessageId,
         /** Indicates if the message was forwarded */
         isForwarded: boolean,
+        /**
+         * Indicates how many times the message was forwarded.
+         * The maximum value is 127.
+         */
+        forwardingScore: number,
         /** Indicates if the message was starred */
         isStarred: boolean,
         /** Location information contained in the message, if the message is type "location" */
         location: Location,
         /** List of vCards contained in the message */
         vCards: string[],
+        /** Invite v4 info */
+        inviteV4?: InviteV4Data,
         /** MediaKey that represents the sticker 'ID' */
         mediaKey?: string,
         /** Indicates the mentions in the message body. */
@@ -529,7 +556,18 @@ declare namespace WAWebJS {
         type: MessageTypes,
         /** Links included in the message. */
         links: string[],
-
+        /** Order ID */
+        orderId: string,
+        /** title */
+        title?: string,
+        /** description*/
+        description?: string,
+        /** Business Owner JID */
+        businessOwnerJid?: string,
+        /** Product JID */
+        productId?: string,
+        /** Accept the Group V4 Invite in message */
+        acceptGroupV4Invite: () => Promise<{ status: number }>,
         /** Deletes the message from the chat */
         delete: (everyone?: boolean) => Promise<void>,
         /** Downloads and returns the attatched message media */
@@ -557,7 +595,11 @@ declare namespace WAWebJS {
         /** Unstar this message */
         unstar: () => Promise<void>,
         /** Get information about message delivery statuso */
-        getInfo: () => Promise<MessageInfo | null>
+        getInfo: () => Promise<MessageInfo | null>,
+        /**
+         * Gets the order associated with a given message
+         */
+        getOrder: () => Order,
     }
 
     /** ID that represents a message */
@@ -568,10 +610,13 @@ declare namespace WAWebJS {
         _serialized: string,
     }
 
-    export interface Location {
-        description?: string | null,
-        latitude: string,
-        longitude: string,
+    /** Location information */
+    export class Location {
+        description?: string | null
+        latitude: string
+        longitude: string
+
+        constructor(latitude: number, longitude: number, description?: string)
     }
 
     export interface Label {
@@ -592,6 +637,8 @@ declare namespace WAWebJS {
         linkPreview?: boolean
         /** Send audio as voice message */
         sendAudioAsVoice?: boolean
+        /** Send video as gif */
+        sendVideoAsGif?: boolean
         /** Send media as sticker */
         sendMediaAsSticker?: boolean
         /** Send media as document */
@@ -608,6 +655,14 @@ declare namespace WAWebJS {
         sendSeen?: boolean
         /** Media to be sent */
         media?: MessageMedia
+        /** Extra options */
+        extra?: any
+        /** Sticker name, if sendMediaAsSticker is true */
+        stickerName?: string
+        /** Sticker author, if sendMediaAsSticker is true */
+        stickerAuthor?: string
+        /** Sticker categories, if sendMediaAsSticker is true */
+        stickerCategories?: string[]
     }
 
     /** Media attached to a message */
@@ -860,11 +915,11 @@ declare namespace WAWebJS {
     }
 
     /** Promotes or demotes participants by IDs to regular users or admins */
-    export type ChangeParticipantsPermisions = 
+    export type ChangeParticipantsPermisions =
         (participantIds: Array<string>) => Promise<{ status: number }>
 
     /** Adds or removes a list of participants by ID to the group */
-    export type ChangeGroupParticipants = 
+    export type ChangeGroupParticipants =
         (participantIds: Array<string>) => Promise<{
             status: number;
             participants: Array<{
@@ -872,9 +927,9 @@ declare namespace WAWebJS {
                     code: number
                 }
             }>
-         } & {
-             [key: string]: number;
-         }>
+        } & {
+            [key: string]: number;
+        }>
 
     export interface GroupChat extends Chat {
         /** Group owner */
@@ -908,19 +963,99 @@ declare namespace WAWebJS {
          * @returns {Promise<boolean>} Returns true if the setting was properly updated. This can return false if the user does not have the necessary permissions.
          */
         setInfoAdminsOnly: (adminsOnly?: boolean) => Promise<boolean>;
-
-                /**
+        /**
         * Set the profile picture of the group chat.
         * @param {MessageMedia} picture The picture to set. 
         * @returns {Promise<String | false>} The url of the image / null if you can't set the profile picture
         */
-                 setProfilePicture: (picture: MessageMedia) => Promise<String | null>;
+        setProfilePicture: (picture: MessageMedia) => Promise<String | null>;
         /** Gets the invite code for a specific group */
         getInviteCode: () => Promise<string>;
         /** Invalidates the current group invite code and generates a new one */
         revokeInvite: () => Promise<void>;
         /** Makes the bot leave the group */
         leave: () => Promise<void>;
+    }
+
+    /**
+     * Represents the metadata associated with a given product
+     *
+     */
+    export interface ProductMetadata {
+        /** Product Id */
+        id: string,
+        /** Product Name */
+        name: string,
+        /** Product Description */
+        description: string,
+        /** Retailer ID */
+        retailer_id?: string
+    }
+
+    /**
+     * Represents a Product on Whatsapp
+     * @example
+     * {
+     * "id": "123456789",
+     * "price": "150000",
+     * "thumbnailId": "123456789",
+     * "thumbnailUrl": "https://mmg.whatsapp.net",
+     * "currency": "GTQ",
+     * "name": "Store Name",
+     * "quantity": 1
+     * }
+     */
+    export interface Product {
+        /** Product Id */
+        id: string,
+        /** Price */
+        price?: string,
+        /** Product Thumbnail*/
+        thumbnailUrl: string,
+        /** Currency */
+        currency: string,
+        /** Product Name */
+        name: string,
+        /** Product Quantity*/
+        quantity: number,
+        /** Gets the Product metadata */
+        getData: () => Promise<ProductMetadata>
+    }
+
+    /**
+     * Represents a Order on WhatsApp
+     *
+     * @example
+     * {
+     * "products": [
+     * {
+     * "id": "123456789",
+     * "price": "150000",
+     * "thumbnailId": "123456789",
+     * "thumbnailUrl": "https://mmg.whatsapp.net",
+     * "currency": "GTQ",
+     * "name": "Store Name",
+     * "quantity": 1
+     * }
+     * ],
+     * "subtotal": "150000",
+     * "total": "150000",
+     * "currency": "GTQ",
+     * "createdAt": 1610136796,
+     * "sellerJid": "55555555@s.whatsapp.net"
+     * }
+     */
+    export interface Order {
+        /** List of products*/
+        products: Array<Product>,
+        /** Order Subtotal */
+        subtotal: string,
+        /** Order Total */
+        total: string,
+        /** Order Currency */
+        currency: string,
+        /** Order Created At*/
+        createdAt: number;
     }
 }
 

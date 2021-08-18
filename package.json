@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-web-electron.js",
-  "version": "1.12.6",
+  "version": "1.13.2-1",
   "description": "Library for interacting with the WhatsApp Web API through electron",
   "main": "./index.js",
   "typings": "./index.d.ts",
@@ -29,14 +29,15 @@
   },
   "homepage": "https://github.com/Zzombiee2361/whatsapp-web-electron.js",
   "dependencies": {
-    "@pedroslopez/moduleraid": "^5.0.0",
+    "@pedroslopez/moduleraid": "^5.0.1",
     "fluent-ffmpeg": "^2.1.2",
     "jsqr": "^1.4.0",
     "mime": "^2.4.5",
-    "puppeteer-in-electron": "^3.0.3"
+    "puppeteer-in-electron": "^3.0.3",
+    "node-webpmux": "^2.0.0"
   },
   "devDependencies": {
-    "eslint": "^6.8.0",
+    "eslint": "^7.27.0",
     "jsdoc": "^3.6.4",
     "jsdoc-baseline": "^0.1.5"
   }

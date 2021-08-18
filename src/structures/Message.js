@@ -3,6 +3,7 @@
 const Base = require('./Base');
 const MessageMedia = require('./MessageMedia');
 const Location = require('./Location');
+const Order = require('./Order');
 const { MessageTypes } = require('../util/Constants');
 
 /**
@@ -40,7 +41,7 @@ class Message extends Base {
          * Indicates if the message has media available for download
          * @type {boolean}
          */
-        this.hasMedia = data.clientUrl || data.deprecatedMms3Url ? true : false;
+        this.hasMedia = Boolean(data.mediaKey && data.directPath);
 
         /**
          * Message content
@@ -82,10 +83,24 @@ class Message extends Base {
         this.author = (typeof (data.author) === 'object' && data.author !== null) ? data.author._serialized : data.author;
 
         /**
+         * String that represents from which device type the message was sent
+         * @type {string}
+         */
+        this.deviceType = data.id.id.length > 21 ? 'android' : data.id.id.substring(0,2) =='3A' ? 'ios' : 'web';
+        
+        /**
          * Indicates if the message was forwarded
          * @type {boolean}
          */
         this.isForwarded = data.isForwarded;
+
+        /**
+         * Indicates how many times the message was forwarded.
+         *
+         * The maximum value is 127.
+         * @type {number}
+         */
+        this.forwardingScore = data.forwardingScore || 0;
 
         /**
          * Indicates if the message is a status update
@@ -130,6 +145,19 @@ class Message extends Base {
         this.vCards = data.type === MessageTypes.CONTACT_CARD_MULTI ? data.vcardList.map((c) => c.vcard) : data.type === MessageTypes.CONTACT_CARD ? [data.body] : [];
 
         /**
+         * Group Invite Data
+         * @type {object}
+         */
+        this.inviteV4 = data.type === MessageTypes.GROUP_INVITE ? {
+            inviteCode: data.inviteCode,
+            inviteCodeExp: data.inviteCodeExp,
+            groupId: data.inviteGrp,
+            groupName: data.inviteGrpName,
+            fromId: data.from._serialized,
+            toId: data.to._serialized
+        } : undefined;
+         
+        /**
          * Indicates the mentions in the message body.
          * @type {Array<string>}
          */
@@ -137,6 +165,37 @@ class Message extends Base {
 
         if (data.mentionedJidList) {
             this.mentionedIds = data.mentionedJidList;
+        }
+
+        /**
+         * Order ID for message type ORDER
+         * @type {string}
+         */
+        this.orderId = data.orderId ? data.orderId : undefined;
+        /**
+         * Order Token for message type ORDER
+         * @type {string}
+         */
+        this.token = data.token ? data.token : undefined;
+
+        /** Title */
+        if (data.title) {
+            this.title = data.title;
+        }
+
+        /** Description */
+        if (data.description) {
+            this.description = data.description;
+        }
+
+        /** Business Owner JID */
+        if (data.businessOwnerJid) {
+            this.businessOwnerJid = data.businessOwnerJid;
+        }
+
+        /** Product ID */
+        if (data.productId) {
+            this.productId = data.productId;
         }
 
         /**
@@ -215,6 +274,14 @@ class Message extends Base {
     }
 
     /**
+     * Accept Group V4 Invite
+     * @returns {Promise<Object>}
+     */
+    async acceptGroupV4Invite() {
+        return await this.client.acceptGroupV4Invite(this.inviteV4);
+    }
+    
+    /**
      * Forwards this message to another chat
      * 
      * @param {string|Chat} chat Chat model or chat ID to which the message will be forwarded
@@ -253,14 +320,20 @@ class Message extends Base {
                 return undefined;
             }
 
-            const mediaUrl = msg.clientUrl || msg.deprecatedMms3Url;
+            const decryptedMedia = await window.Store.DownloadManager.downloadAndDecrypt({
+                directPath: msg.directPath,
+                encFilehash: msg.encFilehash,
+                filehash: msg.filehash,
+                mediaKey: msg.mediaKey,
+                mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                type: msg.type,
+                signal: (new AbortController).signal
+            });
 
-            const buffer = await window.WWebJS.downloadBuffer(mediaUrl);
-            const decrypted = await window.Store.CryptoLib.decryptE2EMedia(msg.type, buffer, msg.mediaKey, msg.mimetype);
-            const data = await window.WWebJS.readBlobAsync(decrypted._blob);
+            const data = window.WWebJS.arrayBufferToBase64(decryptedMedia);
 
             return {
-                data: data.split(',')[1],
+                data,
                 mimetype: msg.mimetype,
                 filename: msg.filename
             };
@@ -341,6 +414,21 @@ class Message extends Base {
         }
 
         return info;
+    }
+
+    /**
+     * Gets the order associated with a given message
+     * @return {Promise<Order>}
+     */
+    async getOrder() {
+        if (this.type === MessageTypes.ORDER) {
+            const result = await this.client.pupPage.evaluate((orderId, token) => {
+                return window.WWebJS.getOrderDetail(orderId, token);
+            }, this.orderId, this.token);
+            if (!result) return undefined;
+            return new Order(this.client, result);
+        }
+        return undefined;
     }
 }
 
